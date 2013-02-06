@@ -1,3 +1,8 @@
+3.xx
+
+Ability to search via XPath in addition to regex.
+
+
 3.07
 
 Compatibility tweaks for RT4

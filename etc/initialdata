@@ -28,6 +28,22 @@
 #     capturing groups, the first of which is the CF name,
 #     the second of which is the value.  If this option is
 #     given, the <cf-name> field is ignored.
+# x - (xml) The MatchString should be an XPath query, not a regex.
+#     This will treat the header/body as an xml document and
+#     find results via XPath. The header/body must contain
+#     a valid xml document.
+# x*- (xml wildcard) The MatchString should contain an xml 
+#     document, not a regex. The document should be of the form:
+#     <find><root>/XPath/query</root><name>/XPath/query</name>
+#         <value>/XPath/query</value></find>
+#     (Note: your document should be all on one line)
+#     This will create a 2-step search. First RT will find the
+#     xml nodes requested by the root XPath query. Then, within
+#     those nodes, RT will find the CF name and CF value using the
+#     other two XPath queries. This matches the wildcard search
+#     above.
+
+
 
 #### Examples:
 
@@ -82,6 +98,33 @@
 #        }
 #    }
 # }
+
+# 9. Scan the xml file for <host>name</host> and put name into the
+#    "bodycf" custom field:
+# bodycf|Body|//host||x
+
+# 10. Suppose your anti-virus server sends out alerts with xml attachments
+#     when it finds an infected host.
+#     <report>
+#       <infectedhost>
+#         <hostname>alice.corp.tld</hostname>
+#         <ip>192.168.1.101</ip>
+#         <virusname>W32/Really.Bad</virusname>
+#       </infectedhost>
+#       <infectedhost>
+#         <hostname>bob.corp.tld</hostname>
+#         <ip>192.168.1.102</ip>
+#         <virusname>W32/Holycow.Spyware</virusname>
+#       </infectedhost>
+#     </report>
+#
+#     You might slurp this into RT this way:
+# AntivirusSearch|body|<find><root>/report/infectedhost</root><name>name(./*)</name><value>./*</value>
+#
+#     Assuming you have CFs named hostname, ip, and virusname, this 
+#     will populate them. If those are multivalue CFs, then it will
+#     yeild separate results.
+
 
 EOTEXT
     }

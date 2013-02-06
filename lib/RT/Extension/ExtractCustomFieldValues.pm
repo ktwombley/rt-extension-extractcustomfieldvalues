@@ -74,6 +74,9 @@ options include:
 groups, the first of which is the CF name, the second of which is the value.
 If this option is given, the <cf-name> field is ignored.
 
+=item 'x' - (xml) Treat the document as xml and the MatchString as an XPath 
+expression. Useful for parsing automated emails.
+
 =back
 
 =back

@@ -3,6 +3,7 @@ require RT::Action;
 
 use strict;
 use warnings;
+use XML::XPath;
 
 use base qw(RT::Action);
 
@@ -60,6 +61,7 @@ sub TemplateConfig {
     return \@results;
 }
 
+
 sub Commit {
     my $self            = shift;
     return 1 unless $self->FirstAttachment;
@@ -70,48 +72,138 @@ sub Commit {
 
     for my $config (@$config_lines) {
         my %config = %{$config};
+
         $RT::Logger->debug( "Looking to extract: "
                 . join( " ", map {"$_=$config{$_}"} sort keys %config ) );
 
-        if ( $config{Options} =~ /\*/ ) {
-            $self->FindContent(
-                %config,
-                Callback    => sub {
-                    my $content = shift;
-                    my $found = 0;
-                    while ( $content =~ /$config{Match}/mg ) {
-                        my ( $cf, $value ) = ( $1, $2 );
-                        $cf = $self->LoadCF( Name => $cf, Quiet => 1 );
-                        next unless $cf;
-                        $found++;
-                        $self->ProcessCF(
-                            %config,
-                            CustomField => $cf,
-                            Value       => $value
-                        );
-                    }
-                    return $found;
-                },
-            );
-        } else {
-            my $cf;
-            $cf = $self->LoadCF( Name => $config{CFName} )
-                if $config{CFName};
+        my $cf;
+        $cf = $self->LoadCF( Name => $config{CFName} )
+            if $config{CFName};
 
-            $self->FindContent(
+        #This is the callback executed when the search is for a single CF via regex.
+        my $__cb = sub {
+            my $content = shift;
+            return 0 unless $content =~ /($config{Match})/m;
+
+        $self->ProcessCF(
                 %config,
-                Callback    => sub {
-                    my $content = shift;
-                    return 0 unless $content =~ /($config{Match})/m;
+                CustomField => $cf,
+                Value       => $2 || $1,
+            );
+            return 1;
+        };
+
+        #This is the callback executed when the search is for multiple CFs via regex.
+        my $__cb_multi = sub {
+            my $content = shift;
+            my $found = 0;
+            while ( $content =~ /$config{Match}/mg ) {
+                my ( $cfname, $value ) = ( $1, $2 );
+                $cf = $self->LoadCF( Name => $cfname, Quiet => 1 );
+                next unless $cf;
+                $found++;
+                $self->ProcessCF(
+                    %config,
+                    CustomField => $cf,
+                    Value       => $value
+                );
+            }
+            return $found;
+        };
+
+        #This is the callback executed when the search is via xml, multi or not.
+        my $__cb_xml = sub {
+            my $content = shift;
+        
+            $RT::Logger->debug( "Requested xpath match instead of regex" );
+            #first we have to get the search contents
+            my $xp = XML::XPath->new( xml => $config{Match} );
+
+            # the Match content will look like one of these:
+            #
+            # /path/to/cf/value                <- an xpath statement
+            #
+            #       -or-
+            #
+            # <find>                                <-a tiny xml doc
+            #     <root>/path/to/chunk</root>         (probably not
+            #     <name>/path/to/cfname</name>         linewrapped)
+            #     <value>/path/to/value</value>
+            # </find>
+   
+            my ($rootpath, $namepath, $valuepath) = 0;
+
+            if ($config{Options} =~ /\*/ ) {
+                eval {
+                    $rootpath = $xp->findvalue('/find/root');
+                    $namepath = $xp->findvalue('/find/name');
+                    $valuepath = $xp->findvalue('/find/value');
+                    $RT::Logger->debug( "Found search paths: "
+                    . join( "\n", ($rootpath, $namepath, $valuepath) ) );
+                    1;
+                } or do {
+                    #if XML::XPath::XMLParse chokes on the document, that means it
+                    #probably isn't xml. The user has made some sort of mistake.
+                    $RT::Logger->warning( "You asked for an xml multimatch, but the search string wasn't xml. I give up." );
+                    return 0;
+                };	
+            } else {
+                $rootpath = $config{Match};
+                $RT::Logger->debug( "Found single search path: $rootpath" );
+            }
+
+            #ok now the real search
+            $xp->set_xml($content);
+            my $search_result = $xp->find($rootpath);
+            return 0 unless $search_result;
+
+            $RT::Logger->debug( "Search yielded " . $search_result->size . " matches." );
+            if ( $namepath && $valuepath && 
+                 $search_result->size > 1 ) {
+                $RT::Logger->debug( "Multi-results found: $search_result" );
+                foreach my $node ($search_result->getnodelist()) {
+                    my ($cfname, $val);
+                    eval {
+                        $cfname = $xp->find($namepath, $node);
+                        $val = $xp->find($valuepath, $node);
+                        $RT::Logger->debug( "Found name: $cfname and val: $val " );
+                        1;
+                    } or do {
+                        return 0;
+                    };
+                    $cf = $self->LoadCF( Name => $cfname, Quiet => 1 );
+                    next unless $cf;
+                    $val = join(',', $val->get_nodelist) if ($val->isa('XML::XPath::NodeSet'));
                     $self->ProcessCF(
                         %config,
                         CustomField => $cf,
-                        Value       => $2 || $1,
+                        Value       => $val,
                     );
-                    return 1;
                 }
-            );
-        }
+            }
+            #$cf will be defined by the Commit sub in whose context this cb is run.
+            elsif ( $cf && ( $search_result->size == 1 ) ) {
+                $self->ProcessCF(
+                    %config,
+                    CustomField => $cf,
+                    Value       => $search_result->string_value(),
+                );
+
+            }
+            return 0;
+        };
+
+
+
+        #Order matters! 
+	my $callback = $__cb;
+        $callback = $__cb_multi if $config{Options} =~ /\*/;
+        $callback = $__cb_xml if $config{Options} =~ /x/;
+
+        $self->FindContent(
+            %config,
+            Callback    => $callback,
+        );
     }
     return (1);
 }
