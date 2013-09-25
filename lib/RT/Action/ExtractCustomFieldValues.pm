@@ -85,7 +85,7 @@ sub Commit {
             my $content = shift;
             return 0 unless $content =~ /($config{Match})/m;
 
-        $self->ProcessCF(
+            $self->ProcessCF(
                 %config,
                 CustomField => $cf,
                 Value       => $2 || $1,
@@ -110,6 +110,25 @@ sub Commit {
             }
             return $found;
         };
+
+        #This is the callback executed when the search is for a CF with multiple values via regex.
+        my $_cb_plus = sub {
+            my $cf;
+            $cf = $self->LoadCF( Name => $config{CFName} )
+                if $config{CFName};
+            my $content = shift;
+            my $found = 0;
+            while ( $content =~ /($config{Match})/mg ) {
+                $found++;
+                $self->ProcessCF(
+                    %config,
+                    CustomField => $cf,
+                    Value       => $2 || $1,
+                );
+            }
+            return $found;
+        };
+
 
         #This is the callback executed when the search is via xml, multi or not.
         my $__cb_xml = sub {
@@ -197,6 +216,7 @@ sub Commit {
 
         #Order matters! 
 	my $callback = $__cb;
+        $callback = $__cb_plus if $config{Options} =~ /\+/;
         $callback = $__cb_multi if $config{Options} =~ /\*/;
         $callback = $__cb_xml if $config{Options} =~ /x/;
 

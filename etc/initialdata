@@ -28,6 +28,11 @@
 #     capturing groups, the first of which is the CF name,
 #     the second of which is the value.  If this option is
 #     given, the <cf-name> field is ignored.
+#     (Supercedes '+'.)
+# + - (multiple) The MatchString regex will be applied with
+#     the /g option and all matching values will be added to
+#     the CF, which should probably be a multi-value CF for
+#     best results.  (Superceded by '*'.)
 # x - (xml) The MatchString should be an XPath query, not a regex.
 #     This will treat the header/body as an xml document and
 #     find results via XPath. The header/body must contain
@@ -42,7 +47,6 @@
 #     those nodes, RT will find the CF name and CF value using the
 #     other two XPath queries. This matches the wildcard search
 #     above.
-
 
 
 #### Examples:
